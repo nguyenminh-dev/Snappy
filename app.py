@@ -29,7 +29,7 @@ async def main():
         )
         video = api.video(url=VIDEO_URL)
         await video.info()
-        res = await video.post_comment(COMMENT_TEXT, session_index=0)
+        res = await video.post_comment(COMMENT_TEXT)
         print(res)
         
 if __name__ == "__main__":

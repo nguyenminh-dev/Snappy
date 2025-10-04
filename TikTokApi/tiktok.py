@@ -520,6 +520,85 @@ class TikTokApi:
                 else:
                     await asyncio.sleep(1)
 
+    async def make_request_post(
+        self,
+        url: str,
+        data: dict = None,
+        headers: dict = None,
+        params: dict = None,
+        retries: int = 3,
+        exponential_backoff: bool = True,
+        **kwargs,
+    ):
+        """
+        Gửi request POST đến TikTok API (tương tự make_request nhưng có body).
+
+        Args:
+            url (str): endpoint (ví dụ https://www.tiktok.com/api/comment/publish/)
+            data (dict): dữ liệu gửi đi (body)
+            headers (dict): headers bổ sung
+            params (dict): query string (thường để trống)
+            retries (int): số lần retry nếu lỗi
+            exponential_backoff (bool): delay nhân đôi mỗi lần retry
+        """
+        i, session = self._get_session(**kwargs)
+
+        # 1️⃣ Chuẩn hoá input
+        params = params or {}
+        session.params = session.params or {}
+        params = {**session.params, **params}
+
+        session.headers = session.headers or {}
+        headers = {**session.headers, **(headers or {})}
+
+        # 2️⃣ Lấy msToken
+        if params.get("msToken") is None:
+            if session.ms_token is not None:
+                params["msToken"] = session.ms_token
+            else:
+                cookies = await self.get_session_cookies(session)
+                ms_token = cookies.get("msToken")
+                if ms_token is None:
+                    self.logger.warning("⚠️  Không tìm thấy msToken trong cookies.")
+                params["msToken"] = ms_token
+
+        # 3️⃣ Ký URL (X-Bogus)
+        encoded_params = f"{url}?{urlencode(params, safe='=', quote_via=quote)}"
+        signed_url = await self.sign_url(encoded_params, session_index=i)
+
+        # 4️⃣ Chuẩn bị body và headers POST
+        body_str = urlencode(data or {}, safe="=", quote_via=quote)
+        headers.setdefault("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
+        headers.setdefault("origin", "https://www.tiktok.com")
+        headers.setdefault("referer", "https://www.tiktok.com/")
+
+        # 5️⃣ Gửi request
+        retry_count = 0
+        while retry_count < retries:
+            retry_count += 1
+            result = await self.run_fetch_script(
+                signed_url,
+                headers=headers,
+                method="POST",
+                body=body_str,
+                session_index=i
+            )
+
+            if not result:
+                raise EmptyResponseException(result, "TikTok returned empty response.")
+
+            try:
+                parsed = json.loads(result)
+                if parsed.get("status_code") != 0:
+                    self.logger.error(f"❌ status_code != 0: {parsed}")
+                return parsed
+            except json.decoder.JSONDecodeError:
+                if retry_count == retries:
+                    self.logger.error(f"❌ Decode JSON thất bại: {result}")
+                    raise InvalidJSONException()
+                self.logger.info(f"Retry ({retry_count}/{retries}) after JSON decode fail.")
+                await asyncio.sleep(2 ** retry_count if exponential_backoff else 1)
+
     async def close_sessions(self):
         """Close all the sessions. Should be called when you're done with the TikTokApi object"""
         for session in self.sessions:
