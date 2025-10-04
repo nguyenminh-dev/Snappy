@@ -5,7 +5,6 @@ from typing import Any
 import random
 import time
 import json
-
 from playwright.async_api import async_playwright, TimeoutError
 from urllib.parse import urlencode, quote, urlparse
 from .stealth import stealth_async
@@ -556,7 +555,7 @@ class TikTokApi:
                         headers: hdrs || {},
                         body: form,
                         credentials: 'include',
-                        mode: 'cors'
+                        mode: 'same-origin'   // <-- quan trọng
                     });
                     const text = await res.text();
                     return { ok: res.ok, status: res.status, statusText: res.statusText, url: res.url, text };
@@ -566,13 +565,11 @@ class TikTokApi:
             }
         """
         i, session = self._get_session(**kwargs)
-
-        # đảm bảo đang đứng tại trang video (đúng origin + context người dùng)
         try:
             if referrer and referrer.startswith("https://www.tiktok.com/"):
                 await session.page.goto(referrer, wait_until="domcontentloaded")
-                # hành vi người dùng nhẹ để hợp thức tín hiệu
                 await session.page.mouse.move(20, 20)
+                await session.page.wait_for_timeout(300)
         except Exception:
             pass
 
@@ -582,20 +579,37 @@ class TikTokApi:
             "bodyMap": body or {}
         })
 
+
     async def make_request_post(
         self,
         url: str,
         data: dict = None,
         headers: dict = None,
+        retries: int = 3,
+        exponential_backoff: bool = True,
         referrer: str | None = None,
         **kwargs,
     ):
+        """
+        POST tới TikTok ưu tiên qua page-context (tránh TicketGuard 1101), rồi mới fallback RequestContext.
+        - Bổ sung đầy đủ CSRF headers (x-tt-csrftoken, x-secsdk-*).
+        - Đưa verifyFp (từ cookie s_v_web_id) vào query để ký X-Bogus.
+        - Đưa aid=1988 vào body (giống web client).
+        - Điều hướng tới referrer (URL video) trước khi ký & post để giữ JS signals.
+        """
         i, session = self._get_session(**kwargs)
 
+        # ==== Build headers cơ sở (tối giản cho in-page) ====
         base_headers = (session.headers or {}).copy()
         headers = {**base_headers, **(headers or {})}
+        headers.setdefault("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
+        headers.setdefault("origin", "https://www.tiktok.com")
 
-        # Lấy UA từ page nếu có
+        # Dùng referrer thật (URL video) nếu có
+        referrer_url = referrer or "https://www.tiktok.com/"
+        headers["referer"] = referrer_url
+
+        # Lấy UA từ page
         try:
             ua = await session.page.evaluate("() => navigator.userAgent")
         except Exception:
@@ -603,23 +617,35 @@ class TikTokApi:
         if ua:
             headers["user-agent"] = ua
 
-        # Xác định referrer hợp lệ
-        referrer_url = referrer or "https://www.tiktok.com/"
-
-        headers.setdefault("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
-        headers.setdefault("origin", "https://www.tiktok.com")
-        headers["referer"] = referrer_url
-
+        # ==== Cookies & CSRF ====
         cookies = await self.get_session_cookies(session)
-        csrf = cookies.get("tt_csrf_token") or cookies.get("tt-csrf-token")
-        if csrf:
-            headers["x-tt-csrftoken"] = csrf
 
-        # ---- build params ----
+        # x-tt-csrftoken
+        tt_csrf = cookies.get("tt_csrf_token") or cookies.get("tt-csrf-token")
+        if tt_csrf:
+            headers["x-tt-csrftoken"] = tt_csrf
+
+        # x-secsdk-csrf-* (từ passport_csrf_token/_default)
+        passport_csrf = cookies.get("passport_csrf_token") or cookies.get("passport_csrf_token_default")
+        if passport_csrf:
+            headers["x-secsdk-csrf-token"] = passport_csrf
+            headers.setdefault("x-secsdk-csrf-version", "1.22.2")
+            headers["x-secsdk-csrf-request"] = "1"
+
+        # x-ware-csrf-token (tùy chọn – nhiều phiên không bắt buộc)
+        headers.setdefault("x-ware-csrf-token", "0,0001000000000000000")
+
+        # ==== Query params để ký ====
         params = dict(session.params or {})
         if not params.get("msToken"):
             params["msToken"] = session.ms_token or cookies.get("msToken")
 
+        # verifyFp thường bắt buộc cho POST web
+        verify_fp = cookies.get("s_v_web_id")
+        if verify_fp:
+            params["verifyFp"] = verify_fp
+
+        # Bổ sung các tham số nền như web client
         extra_params = {
             "WebIdLastTime": str(int(time.time() * 1000)),
             "app_name": "tiktok_web",
@@ -638,69 +664,54 @@ class TikTokApi:
                 extra_params[k] = session.params[k]
         params.update(extra_params)
 
-        cookies = await self.get_session_cookies(session)
-        if not params.get("msToken"):
-            params["msToken"] = session.ms_token or cookies.get("msToken")
-
-        # >>> THÊM:
-        verify_fp = cookies.get("s_v_web_id")
-        if verify_fp:
-            params["verifyFp"] = verify_fp
-
-        # ❗ Dùng doseq=True để encode ổn định, không để safe='=' gây spacing kỳ lạ
         encoded_url = f"{url}?{urlencode(params, doseq=True)}"
+        if " " in encoded_url:
+            encoded_url = encoded_url.replace(" ", "%20")
 
-        # Vào trang video rồi mới ký & post (giữ signals)
-        try:
-            if referrer_url.startswith("https://www.tiktok.com/"):
-                await session.page.goto(referrer_url, wait_until="domcontentloaded")
-                # hành vi nhẹ "human-like"
-                await session.page.mouse.move(20, 20)
-                await session.page.wait_for_timeout(300)  # 0.3s
-            signed_url = await self.sign_url(encoded_url, session_index=i)
-        except Exception:
-            signed_url = encoded_url
+        # Điều hướng tới referrer, giữ signals (giữ nguyên)
+        # Ký X-Bogus (giữ nguyên)
 
-        # --- IN-PAGE POST (ưu tiên) ---
-        attempts = 0
-        while True:
-            await session.page.mouse.move(40, 60)
-            await session.page.keyboard.press('ArrowDown')
-            await session.page.wait_for_timeout(300)
+        # ==== Body: thêm aid=1988 ====
+        post_body = dict(data or {})
+        post_body.setdefault("aid", "1988")
 
+        # ==== In-page POST (ưu tiên): dùng 'retries' làm số lần thử ====
+        max_attempts = max(1, retries)   # ví dụ: retries=3 -> thử 3 lần in-page
+        attempt = 0
+        while attempt < max_attempts:
             inpage_result = await self.run_post_script(
-                signed_url, headers=headers, body=data, referrer=referrer_url
+                signed_url, headers=headers, body=post_body, referrer=referrer_url
             )
             try:
                 print("🪶 INPAGE POST:", inpage_result.get("status"), inpage_result.get("statusText"))
             except Exception:
                 pass
 
-            if inpage_result and inpage_result.get("ok") and inpage_result.get("text", "").strip():
+            # nếu có body -> parse trả về luôn
+            if inpage_result and inpage_result.get("ok") and (inpage_result.get("text") or "").strip():
                 try:
                     return json.loads(inpage_result["text"])
                 except json.decoder.JSONDecodeError:
                     break  # rơi xuống fallback
 
-            # Nếu body vẫn rỗng (thường do 1101), thử 1 lần: reload + re-sign
-            attempts += 1
-            if attempts >= 2:
+            # nếu rỗng (thường 1101), reload + re-sign và thử lại
+            attempt += 1
+            if attempt >= max_attempts:
                 break
             try:
                 await session.page.reload(wait_until="domcontentloaded")
-                await session.page.mouse.move(25, 25)
-                await session.page.wait_for_timeout(400)
+                await session.page.mouse.move(30, 30)
+                await session.page.wait_for_timeout(450)
                 signed_url = await self.sign_url(encoded_url, session_index=i)
             except Exception:
                 break
 
-        # --- FALLBACK: RequestContext ---
-        status, text = await self._post_via_request_context(session, signed_url, data, headers)
+        # ==== Fallback: RequestContext ====
+        status, text = await self._post_via_request_context(session, signed_url, post_body, headers)
         print("🪶 DEBUG RESPONSE:", status, text[:500])
-        if not text.strip():
+        if not (text or "").strip():
             raise EmptyResponseException(text, f"TikTok returned empty response (HTTP {status}).")
         return json.loads(text)
-
 
     async def _post_via_request_context(self, session, url, data, headers):
         headers.update({
