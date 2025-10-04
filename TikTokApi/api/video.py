@@ -1,12 +1,11 @@
 from __future__ import annotations
 from ..helpers import extract_video_id_from_url, requests_cookie_to_playwright_cookie
-from typing import TYPE_CHECKING, ClassVar, AsyncIterator, Optional
+from typing import TYPE_CHECKING, ClassVar, AsyncIterator, Optional, Union
 from datetime import datetime
 import requests
 from ..exceptions import InvalidResponseException
 import json
 import httpx
-from typing import Union, AsyncIterator
 import asyncio
 import time
 import os
@@ -64,6 +63,7 @@ class Video:
             self.as_dict = data
             self.__extract_from_data()
         elif url is not None:
+            # resolve session briefly to extract video id using headers/proxy if needed
             i, session = self.parent._get_session(**kwargs)
             self.id = extract_video_id_from_url(
                 url,
@@ -79,20 +79,6 @@ class Video:
     async def info(self, **kwargs) -> dict:
         """
         Returns a dictionary of all data associated with a TikTok Video.
-
-        Note: This is slow since it requires an HTTP request, avoid using this if possible.
-
-        Returns:
-            dict: A dictionary of all data associated with a TikTok Video.
-
-        Raises:
-            InvalidResponseException: If TikTok returns an invalid response, or one we don't understand.
-
-        Example Usage:
-            .. code-block:: python
-
-                url = "https://www.tiktok.com/@davidteathercodes/video/7106686413101468970"
-                video_info = await api.video(url=url).info()
         """
         i, session = self.parent._get_session(**kwargs)
         proxy = (
@@ -108,9 +94,6 @@ class Video:
             )
 
         # Try SIGI_STATE first
-        # extract tag <script id="SIGI_STATE" type="application/json">{..}</script>
-        # extract json in the middle
-
         start = r.text.find('<script id="SIGI_STATE" type="application/json">')
         if start != -1:
             start += len('<script id="SIGI_STATE" type="application/json">')
@@ -125,10 +108,6 @@ class Video:
             video_info = data["ItemModule"][self.id]
         else:
             # Try __UNIVERSAL_DATA_FOR_REHYDRATION__ next
-
-            # extract tag <script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">{..}</script>
-            # extract json in the middle
-
             start = r.text.find('<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">')
             if start == -1:
                 raise InvalidResponseException(
@@ -170,22 +149,6 @@ class Video:
     async def bytes(self, stream: bool = False, **kwargs) -> Union[bytes, AsyncIterator[bytes]]:
         """
         Returns the bytes of a TikTok Video.
-
-        TODO:
-            Not implemented yet.
-
-        Example Usage:
-            .. code-block:: python
-
-                video_bytes = await api.video(id='7041997751718137094').bytes()
-
-                # Saving The Video
-                with open('saved_video.mp4', 'wb') as output:
-                    output.write(video_bytes)
-
-                # Streaming (if stream=True)
-                async for chunk in api.video(id='7041997751718137094').bytes(stream=True):
-                    # Process or upload chunk
         """
         i, session = self.parent._get_session(**kwargs)
         downloadAddr = self.as_dict["video"]["downloadAddr"]
@@ -241,20 +204,6 @@ class Video:
     async def comments(self, count=20, cursor=0, **kwargs) -> AsyncIterator[Comment]:
         """
         Returns the comments of a TikTok Video.
-
-        Parameters:
-            count (int): The amount of comments you want returned.
-            cursor (int): The the offset of comments from 0 you want to get.
-
-        Returns:
-            async iterator/generator: Yields TikTokApi.comment objects.
-
-        Example Usage
-        .. code-block:: python
-
-            async for comment in api.video(id='7041997751718137094').comments():
-                # do something
-        ```
         """
         found = 0
         while found < count:
@@ -290,20 +239,6 @@ class Video:
     ) -> AsyncIterator[Video]:
         """
         Returns related videos of a TikTok Video.
-
-        Parameters:
-            count (int): The amount of comments you want returned.
-            cursor (int): The the offset of comments from 0 you want to get.
-
-        Returns:
-            async iterator/generator: Yields TikTokApi.video objects.
-
-        Example Usage
-        .. code-block:: python
-
-            async for related_videos in api.video(id='7041997751718137094').related_videos():
-                # do something
-        ```
         """
         found = 0
         while found < count:
@@ -334,19 +269,19 @@ class Video:
     def __str__(self):
         return f"TikTokApi.video(id='{getattr(self, 'id', None)}')"
 
-    async def post_comment(self, text: str, session_index: int = 0, timeout: int = 20000, headless_debug: bool = False) -> dict:
+    # ------------------ POST COMMENT ------------------
+    async def post_comment(self, text: str, session_index: int = 0, timeout: int = 20000,
+                           headless_debug: bool = False, wait_for_captcha: bool = True,
+                           captcha_wait_timeout: int = 120000) -> dict:
         """
         Post a comment to this video's page by driving the page DOM (Playwright).
-        Returns: dict with keys:
-            - ok: bool
-            - message: str
-            - comment_text: str
-            - screenshot: optional path to screenshot (if created)
-            - html: optional path to saved page HTML (if created)
-            - reason: optional short reason tag
-        Requirements:
-            - The API instance (self.parent) must have active sessions created (api.create_sessions(...)).
-            - The session used must be logged-in (cookies/storageState). If not, login manually once with headless=False.
+
+        Parameters:
+            text: comment text
+            session_index: which session to use
+            headless_debug: set to True when running headful so you can solve captcha manually
+            wait_for_captcha: if True, when a captcha is detected the function will wait for manual solve
+            captcha_wait_timeout: ms to wait for captcha to be solved (if waiting)
         """
 
         # ---------- helper: robust session resolution ----------
@@ -363,12 +298,10 @@ class Video:
             if hasattr(parent, "get_session"):
                 try:
                     maybe = parent.get_session(idx)
-                    # parent.get_session may return (idx, session) or session
                     if isinstance(maybe, tuple) and len(maybe) >= 2:
                         return maybe[0], maybe[1]
                     return idx, maybe
                 except Exception:
-                    # try as callable bound that expects no args
                     try:
                         maybe = parent.get_session()
                         if isinstance(maybe, tuple) and len(maybe) >= 2:
@@ -385,7 +318,6 @@ class Video:
                         return maybe[0], maybe[1]
                     return 0, maybe
                 except TypeError:
-                    # maybe expects an index
                     try:
                         maybe = parent._get_session(idx)
                         if isinstance(maybe, tuple) and len(maybe) >= 2:
@@ -401,7 +333,6 @@ class Video:
                 if hasattr(parent, attr):
                     sess_list = getattr(parent, attr)
                     if sess_list:
-                        # element could be (idx, session) tuple or session object
                         first = sess_list[idx] if len(sess_list) > idx else sess_list[0]
                         if isinstance(first, tuple) and len(first) >= 2:
                             return first[0], first[1]
@@ -421,7 +352,6 @@ class Video:
             html_path = f"debug_comment_{tag}_{ts}.html"
             try:
                 if not page.is_closed():
-                    # small wait for UI to settle
                     try:
                         await page.wait_for_timeout(400)
                     except Exception:
@@ -441,6 +371,39 @@ class Video:
                 html_path = None
             return ss_path, html_path
 
+        # ---------- helper: captcha detection & handling ----------
+        async def _detect_and_handle_captcha(page, wait_for_user: bool, wait_timeout_ms: int):
+            CAPTCHA_SELECTORS = [
+                'text="Drag the slider to fit the puzzle"',
+                'text=Drag the slider',
+                'iframe[src*="captcha"]',
+                'div[class*="captcha"]',
+                'div[role="dialog"] >> text="Drag the slider"',
+            ]
+            for sel in CAPTCHA_SELECTORS:
+                try:
+                    # prefer locator.count where supported
+                    try:
+                        if await page.locator(sel).count() > 0:
+                            ss, html = await _save_debug(page, "captcha-detected")
+                            return True, {"selector": sel, "screenshot": ss, "html": html}
+                    except Exception:
+                        try:
+                            if await page.is_visible(sel):
+                                ss, html = await _save_debug(page, "captcha-detected")
+                                return True, {"selector": sel, "screenshot": ss, "html": html}
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+            try:
+                if await page.locator('text=Drag the slider').count() > 0:
+                    ss, html = await _save_debug(page, "captcha-detected")
+                    return True, {"selector": "text=Drag the slider", "screenshot": ss, "html": html}
+            except Exception:
+                pass
+            return False, {}
+
         # ---------- start main flow ----------
         try:
             sess_index, session = _resolve_session(self.parent, session_index)
@@ -449,7 +412,6 @@ class Video:
 
         page = getattr(session, "page", None)
         context = getattr(session, "context", None)
-        # If no page object stored, try create one from context
         if page is None and context is not None:
             try:
                 page = await context.new_page()
@@ -468,6 +430,31 @@ class Video:
             await page.wait_for_load_state("networkidle")
         except Exception as e:
             return {"ok": False, "message": f"Failed to navigate to video url: {e}", "comment_text": text}
+
+        # detect captcha immediately after load
+        found, info = await _detect_and_handle_captcha(page, wait_for_user=wait_for_captcha, wait_timeout_ms=captcha_wait_timeout)
+        if found:
+            if wait_for_captcha:
+                if not headless_debug:
+                    return {"ok": False, "message": "CAPTCHA detected. Rerun with headless_debug=True (headful) and wait_for_captcha=True to solve manually. Artifacts saved.", "comment_text": text, "screenshot": info.get("screenshot"), "html": info.get("html"), "reason": "captcha-detected"}
+                print("CAPTCHA detected. Please solve it in the opened browser window.")
+                print("Saved artifacts:", info.get("screenshot"), info.get("html"))
+                try:
+                    # try waiting for the common text to be detached
+                    try:
+                        await page.wait_for_selector('text=Drag the slider', state='detached', timeout=captcha_wait_timeout)
+                    except Exception:
+                        try:
+                            await page.wait_for_selector('iframe[src*=\"captcha\"]', state='detached', timeout=captcha_wait_timeout)
+                        except Exception:
+                            await asyncio.get_event_loop().run_in_executor(None, input, "After solving CAPTCHA in browser, press Enter here to continue...")
+                    still, _ = await _detect_and_handle_captcha(page, wait_for_user=False, wait_timeout_ms=0)
+                    if still:
+                        return {"ok": False, "message": "CAPTCHA still present after waiting. Aborting.", "comment_text": text, "screenshot": info.get("screenshot"), "html": info.get("html"), "reason": "captcha-not-cleared"}
+                except Exception as ex:
+                    return {"ok": False, "message": f"Error while waiting for CAPTCHA solve: {ex}", "comment_text": text, "screenshot": info.get("screenshot"), "html": info.get("html"), "reason": "captcha-wait-error"}
+            else:
+                return {"ok": False, "message": "CAPTCHA detected (not waiting). Rerun with wait_for_captcha=True and headless_debug=True to solve manually.", "comment_text": text, "screenshot": info.get("screenshot"), "html": info.get("html"), "reason": "captcha-detected"}
 
         # quick login-probing (non fatal)
         try:
@@ -559,7 +546,7 @@ class Video:
             ss, html = await _save_debug(page, "input-not-found")
             return {"ok": False, "message": "Comment input not found. Saved debug artifacts.", "comment_text": text, "screenshot": ss, "html": html, "reason": "input-not-found"}
 
-        # Type and submit
+        # Type and submit (unchanged)
         try:
             await page.click(input_sel)
             # clear selection (Ctrl+A + Backspace) best-effort
@@ -571,15 +558,12 @@ class Video:
             except Exception:
                 pass
 
-            # type in chunks to avoid input issues
             for chunk in [text[i:i+150] for i in range(0, len(text), 150)]:
                 await page.keyboard.type(chunk, delay=30)
 
-            # try Enter
             await page.keyboard.press("Enter")
             await page.wait_for_timeout(900)
 
-            # fallback: click post button if exists
             post_btns = [
                 'button[data-e2e="comment-post"]',
                 'button:has-text("Post")',
@@ -596,7 +580,6 @@ class Video:
                 except Exception:
                     continue
 
-            # verify comment presence (simple check)
             try:
                 found = await page.query_selector(f'text="{text}"')
             except Exception:
