@@ -14,8 +14,8 @@ def save_json(data, filename="data.json"):
 
 async def main():
     ms_token = os.getenv("ms_token")
-    # headless = os.getenv("headless", "True").lower() == "true"
-    headless = False
+    headless = os.getenv("headless", "True").lower() == "true"
+    # headless = False
     browser = os.getenv("TIKTOK_BROWSER", "chromium")
 
     api = TikTokApi()
@@ -30,12 +30,15 @@ async def main():
         )
         video = api.video(url=VIDEO_URL)
         await video.info()
-        await api.ensure_login()
-        print("🔹 Logged in:", await api.is_logged_in())
-        cookies = await api.get_session_cookies(api.sessions[0])
-        print("🍪 COOKIES KEYS:", list(cookies.keys()))
-        res = await video.post_comment(COMMENT_TEXT)
-        print(res)
+        async for comment in video.comments(count=100):
+            print(comment)
+
+        # await api.ensure_login()
+        # print("🔹 Logged in:", await api.is_logged_in())
+        # cookies = await api.get_session_cookies(api.sessions[0])
+        # print("🍪 COOKIES KEYS:", list(cookies.keys()))
+        # res = await video.post_comment(COMMENT_TEXT)
+        # print(res)
         
 if __name__ == "__main__":
     asyncio.run(main())
