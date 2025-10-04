@@ -127,9 +127,9 @@ class TikTokApi:
             "is_page_visible": "true",
             "language": language,
             "os": platform,
-            "priority_region": "",
+            "priority_region": "VN",
             "referer": "",
-            "region": "US",  # TODO: TikTokAPI option
+            "region": "VN",  # TODO: TikTokAPI option
             "screen_height": screen_height,
             "screen_width": screen_width,
             "tz_name": timezone,
@@ -155,7 +155,7 @@ class TikTokApi:
                     cookies = {}
                 cookies["msToken"] = ms_token
     
-            context = await self.browser.new_context(proxy=proxy, **context_options)
+            context = await self.browser.new_context(proxy=proxy, ignore_https_errors=True, **context_options)
             if cookies is not None:
                 formatted_cookies = [
                     {"name": k, "value": v, "domain": urlparse(url).netloc, "path": "/"}
@@ -391,7 +391,7 @@ class TikTokApi:
         _, session = self._get_session(**kwargs)
         result = await session.page.evaluate(js_script)
         return result
-
+    
     async def generate_x_bogus(self, url: str, **kwargs):
         """Generate the X-Bogus header for a url"""
         _, session = self._get_session(**kwargs)
@@ -435,6 +435,27 @@ class TikTokApi:
         url += f"X-Bogus={x_bogus}"
 
         return url
+
+    async def is_logged_in(self, **kwargs) -> bool:
+        _, session = self._get_session(**kwargs)
+        cookies = await self.get_session_cookies(session)
+        # TikTok yêu cầu có phiên đăng nhập thực sự
+        has_session = bool(cookies.get("sessionid") or cookies.get("sid_guard"))
+        has_csrf    = bool(cookies.get("tt_csrf_token") or cookies.get("tt-csrf-token"))
+        return has_session and has_csrf
+    
+    async def ensure_login(self, **kwargs):
+        i, session = self._get_session(**kwargs)
+        if await self.is_logged_in(session_index=i):
+            return
+        await session.page.goto("https://www.tiktok.com/login")
+        for _ in range(120):
+            await asyncio.sleep(1)
+            if await self.is_logged_in(session_index=i):
+                # 👉 quay về trang chủ để “thoát” khỏi login app
+                await session.page.goto("https://www.tiktok.com/", wait_until="domcontentloaded")
+                return
+        raise Exception("Login timeout: please log in to TikTok in the opened browser.")
 
     async def make_request(
         self,
@@ -520,84 +541,188 @@ class TikTokApi:
                 else:
                     await asyncio.sleep(1)
 
+    async def run_post_script(self, url: str, headers: dict, body: dict,
+                          referrer: str = "https://www.tiktok.com/", **kwargs):
+        js_func = """
+            async (arg) => {
+                const { targetUrl, hdrs, bodyMap } = arg;
+                const form = new URLSearchParams();
+                for (const [k, v] of Object.entries(bodyMap || {})) {
+                    form.append(k, v == null ? '' : String(v));
+                }
+                try {
+                    const res = await fetch(targetUrl, {
+                        method: 'POST',
+                        headers: hdrs || {},
+                        body: form,
+                        credentials: 'include',
+                        mode: 'cors'
+                    });
+                    const text = await res.text();
+                    return { ok: res.ok, status: res.status, statusText: res.statusText, url: res.url, text };
+                } catch (e) {
+                    return { ok: false, status: 0, statusText: String(e), url: targetUrl, text: "" };
+                }
+            }
+        """
+        i, session = self._get_session(**kwargs)
+
+        # đảm bảo đang đứng tại trang video (đúng origin + context người dùng)
+        try:
+            if referrer and referrer.startswith("https://www.tiktok.com/"):
+                await session.page.goto(referrer, wait_until="domcontentloaded")
+                # hành vi người dùng nhẹ để hợp thức tín hiệu
+                await session.page.mouse.move(20, 20)
+        except Exception:
+            pass
+
+        return await session.page.evaluate(js_func, {
+            "targetUrl": url,
+            "hdrs": headers,
+            "bodyMap": body or {}
+        })
+
     async def make_request_post(
         self,
         url: str,
         data: dict = None,
         headers: dict = None,
-        params: dict = None,
-        retries: int = 3,
-        exponential_backoff: bool = True,
+        referrer: str | None = None,
         **kwargs,
     ):
-        """
-        Gửi request POST đến TikTok API (tương tự make_request nhưng có body).
-
-        Args:
-            url (str): endpoint (ví dụ https://www.tiktok.com/api/comment/publish/)
-            data (dict): dữ liệu gửi đi (body)
-            headers (dict): headers bổ sung
-            params (dict): query string (thường để trống)
-            retries (int): số lần retry nếu lỗi
-            exponential_backoff (bool): delay nhân đôi mỗi lần retry
-        """
         i, session = self._get_session(**kwargs)
 
-        # 1️⃣ Chuẩn hoá input
-        params = params or {}
-        session.params = session.params or {}
-        params = {**session.params, **params}
+        base_headers = (session.headers or {}).copy()
+        headers = {**base_headers, **(headers or {})}
 
-        session.headers = session.headers or {}
-        headers = {**session.headers, **(headers or {})}
+        # Lấy UA từ page nếu có
+        try:
+            ua = await session.page.evaluate("() => navigator.userAgent")
+        except Exception:
+            ua = headers.get("user-agent") or headers.get("User-Agent")
+        if ua:
+            headers["user-agent"] = ua
 
-        # 2️⃣ Lấy msToken
-        if params.get("msToken") is None:
-            if session.ms_token is not None:
-                params["msToken"] = session.ms_token
-            else:
-                cookies = await self.get_session_cookies(session)
-                ms_token = cookies.get("msToken")
-                if ms_token is None:
-                    self.logger.warning("⚠️  Không tìm thấy msToken trong cookies.")
-                params["msToken"] = ms_token
+        # Xác định referrer hợp lệ
+        referrer_url = referrer or "https://www.tiktok.com/"
 
-        # 3️⃣ Ký URL (X-Bogus)
-        encoded_params = f"{url}?{urlencode(params, safe='=', quote_via=quote)}"
-        signed_url = await self.sign_url(encoded_params, session_index=i)
-
-        # 4️⃣ Chuẩn bị body và headers POST
-        body_str = urlencode(data or {}, safe="=", quote_via=quote)
         headers.setdefault("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
         headers.setdefault("origin", "https://www.tiktok.com")
-        headers.setdefault("referer", "https://www.tiktok.com/")
+        headers["referer"] = referrer_url
 
-        # 5️⃣ Gửi request
-        retry_count = 0
-        while retry_count < retries:
-            retry_count += 1
-            result = await self.run_fetch_script(
-                signed_url,
-                headers=headers,
-                method="POST",
-                body=body_str,
-                session_index=i
+        cookies = await self.get_session_cookies(session)
+        csrf = cookies.get("tt_csrf_token") or cookies.get("tt-csrf-token")
+        if csrf:
+            headers["x-tt-csrftoken"] = csrf
+
+        # ---- build params ----
+        params = dict(session.params or {})
+        if not params.get("msToken"):
+            params["msToken"] = session.ms_token or cookies.get("msToken")
+
+        extra_params = {
+            "WebIdLastTime": str(int(time.time() * 1000)),
+            "app_name": "tiktok_web",
+            "channel": "tiktok_web",
+            "cookie_enabled": "true",
+            "data_collection_enabled": "true",
+            "focus_state": "true",
+            "from_page": "video",
+            "is_fullscreen": "false",
+            "is_page_visible": "true",
+            "user_is_login": "true",
+            "webcast_language": params.get("app_language") or params.get("language") or "vi",
+        }
+        for k in ("screen_height", "screen_width", "tz_name"):
+            if k not in params and k in (session.params or {}):
+                extra_params[k] = session.params[k]
+        params.update(extra_params)
+
+        cookies = await self.get_session_cookies(session)
+        if not params.get("msToken"):
+            params["msToken"] = session.ms_token or cookies.get("msToken")
+
+        # >>> THÊM:
+        verify_fp = cookies.get("s_v_web_id")
+        if verify_fp:
+            params["verifyFp"] = verify_fp
+
+        # ❗ Dùng doseq=True để encode ổn định, không để safe='=' gây spacing kỳ lạ
+        encoded_url = f"{url}?{urlencode(params, doseq=True)}"
+
+        # Vào trang video rồi mới ký & post (giữ signals)
+        try:
+            if referrer_url.startswith("https://www.tiktok.com/"):
+                await session.page.goto(referrer_url, wait_until="domcontentloaded")
+                # hành vi nhẹ "human-like"
+                await session.page.mouse.move(20, 20)
+                await session.page.wait_for_timeout(300)  # 0.3s
+            signed_url = await self.sign_url(encoded_url, session_index=i)
+        except Exception:
+            signed_url = encoded_url
+
+        # --- IN-PAGE POST (ưu tiên) ---
+        attempts = 0
+        while True:
+            await session.page.mouse.move(40, 60)
+            await session.page.keyboard.press('ArrowDown')
+            await session.page.wait_for_timeout(300)
+
+            inpage_result = await self.run_post_script(
+                signed_url, headers=headers, body=data, referrer=referrer_url
             )
-
-            if not result:
-                raise EmptyResponseException(result, "TikTok returned empty response.")
-
             try:
-                parsed = json.loads(result)
-                if parsed.get("status_code") != 0:
-                    self.logger.error(f"❌ status_code != 0: {parsed}")
-                return parsed
-            except json.decoder.JSONDecodeError:
-                if retry_count == retries:
-                    self.logger.error(f"❌ Decode JSON thất bại: {result}")
-                    raise InvalidJSONException()
-                self.logger.info(f"Retry ({retry_count}/{retries}) after JSON decode fail.")
-                await asyncio.sleep(2 ** retry_count if exponential_backoff else 1)
+                print("🪶 INPAGE POST:", inpage_result.get("status"), inpage_result.get("statusText"))
+            except Exception:
+                pass
+
+            if inpage_result and inpage_result.get("ok") and inpage_result.get("text", "").strip():
+                try:
+                    return json.loads(inpage_result["text"])
+                except json.decoder.JSONDecodeError:
+                    break  # rơi xuống fallback
+
+            # Nếu body vẫn rỗng (thường do 1101), thử 1 lần: reload + re-sign
+            attempts += 1
+            if attempts >= 2:
+                break
+            try:
+                await session.page.reload(wait_until="domcontentloaded")
+                await session.page.mouse.move(25, 25)
+                await session.page.wait_for_timeout(400)
+                signed_url = await self.sign_url(encoded_url, session_index=i)
+            except Exception:
+                break
+
+        # --- FALLBACK: RequestContext ---
+        status, text = await self._post_via_request_context(session, signed_url, data, headers)
+        print("🪶 DEBUG RESPONSE:", status, text[:500])
+        if not text.strip():
+            raise EmptyResponseException(text, f"TikTok returned empty response (HTTP {status}).")
+        return json.loads(text)
+
+
+    async def _post_via_request_context(self, session, url, data, headers):
+        headers.update({
+            "accept": "*/*",
+            "accept-language": "en-US,en;q=0.9,vi;q=0.8",
+            "sec-ch-ua": '"Chromium";v="117", "Not)A;Brand";v="24"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+        })
+
+        request = session.context.request
+        # data là dict -> Playwright sẽ gửi form-urlencoded đúng content-type phía trên
+        res = await request.post(url, headers=headers, data=data)
+        text = await res.text()
+        print("🪶 DEBUG STATUS:", res.status)
+        print("🪶 DEBUG HEADERS:", res.headers)
+        print("🪶 DEBUG URL:", res.url)
+        print("🪶 DEBUG BODY SNIPPET:", text[:500])
+        return res.status, text
 
     async def close_sessions(self):
         """Close all the sessions. Should be called when you're done with the TikTokApi object"""

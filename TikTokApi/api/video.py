@@ -252,6 +252,7 @@ class Video:
                 params=params,
                 headers=kwargs.get("headers"),
                 session_index=kwargs.get("session_index"),
+                referrer=self.url
             )
 
             if resp is None:
@@ -284,20 +285,12 @@ class Video:
         """
         if not getattr(self, "id", None):
             raise TypeError("Video.id is missing, cannot post comment.")
-
-        # Chuẩn bị payload
-        data = {
-            "aweme_id": self.id,
-            "text": text,
-        }
-
-        # Gọi API như hàm comments()
+        self.video_ref = self
         resp = await self.parent.make_request_post(
             url="https://www.tiktok.com/api/comment/publish/",
             data={"aweme_id": self.id, "text": text},
             headers=kwargs.get("headers"),
-            params={},
-            session_index=kwargs.get("session_index"),
+            referrer=self.url
         )
 
         if resp is None:
