@@ -89,4 +89,5 @@ class Comment:
     def __str__(self):
         id = getattr(self, "id", None)
         text = getattr(self, "text", None)
-        return f"TikTokApi.comment(comment_id='{id}', text='{text}')"
+        like_count = getattr(self, "likes_count", None)
+        return f"TikTokApi.comment(comment_id='{id}', text='{text}', likes_count='{like_count}')"

@@ -1,7 +1,16 @@
 import os, json, asyncio
+from datetime import datetime
 from TikTokApi import TikTokApi
 
-VIDEO_URL = "https://www.tiktok.com/@chucareviewkhongbooking/video/7516680377256201490?q=k%C3%ADnh%20m%E1%BA%AFt%20nam&t=1759228599615"
+VIDEO_URL = "https://www.tiktok.com/@khanh.lifetech/video/7352526694403607809"
+COMMENT_TEXT = "Xin chào từ TP.HCM!"
+def save_json(data, filename="data.json"):
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump({
+            "fetched_at": datetime.now().isoformat(),
+            "source_url": VIDEO_URL,
+            "data": data
+        }, f, ensure_ascii=False, indent=4)
 
 async def main():
     ms_token = os.getenv("ms_token")
@@ -19,8 +28,9 @@ async def main():
             suppress_resource_load_types=["image","media","font","stylesheet"],
         )
         video = api.video(url=VIDEO_URL)
-        data = await video.info()
-        print(json.dumps(data, indent=4, ensure_ascii=False))
-
+        await video.info()
+        res = await video.post_comment(COMMENT_TEXT, session_index=0)
+        print(res)
+        
 if __name__ == "__main__":
     asyncio.run(main())
