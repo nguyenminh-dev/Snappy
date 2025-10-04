@@ -542,42 +542,71 @@ class TikTokApi:
 
     async def run_post_script(self, url: str, headers: dict, body: dict,
                           referrer: str = "https://www.tiktok.com/", **kwargs):
-        js_func = """
-            async (arg) => {
-                const { targetUrl, hdrs, bodyMap } = arg;
+        """
+        Gửi POST trực tiếp trong *main world* của trang.
+        Ưu tiên dùng window.TTKRequest.fetch (có đủ anti-bot signals), fallback window.fetch.
+        KHÔNG tự ép headers để tránh bị TicketGuard.
+        """
+        js_code = """
+            (args) => new Promise((resolve) => {
+                const { targetUrl, bodyMap } = args;
+
+                // form-urlencoded body
                 const form = new URLSearchParams();
                 for (const [k, v] of Object.entries(bodyMap || {})) {
                     form.append(k, v == null ? '' : String(v));
                 }
-                try {
-                    const res = await fetch(targetUrl, {
-                        method: 'POST',
-                        headers: hdrs || {},
-                        body: form,
-                        credentials: 'include',
-                        mode: 'same-origin'   // <-- quan trọng
-                    });
-                    const text = await res.text();
-                    return { ok: res.ok, status: res.status, statusText: res.statusText, url: res.url, text };
-                } catch (e) {
-                    return { ok: false, status: 0, statusText: String(e), url: targetUrl, text: "" };
-                }
-            }
-        """
-        i, session = self._get_session(**kwargs)
-        try:
-            if referrer and referrer.startswith("https://www.tiktok.com/"):
-                await session.page.goto(referrer, wait_until="domcontentloaded")
-                await session.page.mouse.move(20, 20)
-                await session.page.wait_for_timeout(300)
-        except Exception:
-            pass
 
-        return await session.page.evaluate(js_func, {
-            "targetUrl": url,
-            "hdrs": headers,
-            "bodyMap": body or {}
-        })
+                // chọn fetch gốc của TikTok nếu có
+                const doFetch =
+                    (window.TTKRequest && typeof window.TTKRequest.fetch === 'function')
+                        ? window.TTKRequest.fetch.bind(window.TTKRequest)
+                        : window.fetch.bind(window);
+
+                // tuyệt đối không set headers thủ công ở đây
+                // để browser/TTKRequest tự gắn content-type, CSRF, trace headers...
+                doFetch(targetUrl, {
+                    method: 'POST',
+                    body: form,
+                    credentials: 'include',
+                    // để mặc định/referrer hiện hành; không ép mode để tránh sai policy
+                })
+                .then(async (res) => {
+                    const text = await res.text();
+                    resolve({
+                        ok: res.ok,
+                        status: res.status,
+                        statusText: res.statusText,
+                        url: res.url,
+                        text
+                    });
+                })
+                .catch(e => resolve({
+                    ok: false,
+                    status: 0,
+                    statusText: String(e),
+                    url: targetUrl,
+                    text: ''
+                }));
+            })
+        """
+
+        i, session = self._get_session(**kwargs)
+        page = session.page
+
+        # Vào đúng trang video (để Referer + origin đúng, context đầy đủ)
+        if referrer and referrer.startswith("https://www.tiktok.com/"):
+            try:
+                print("🪶 REFERRER:", referrer)
+                await page.goto(referrer, wait_until="domcontentloaded")
+                await page.mouse.move(20, 20)
+                await page.wait_for_timeout(300)
+            except Exception as e:
+                print("⚠️ REFERRER GOTO FAIL:", e)
+
+        args = { "targetUrl": url, "bodyMap": body or {} }
+        handle = await page.evaluate_handle(js_code, args)
+        return await handle.json_value()
 
 
     async def make_request_post(
@@ -599,17 +628,18 @@ class TikTokApi:
         """
         i, session = self._get_session(**kwargs)
 
-        # ==== Build headers cơ sở (tối giản cho in-page) ====
+        # ==== Base headers fallback ====
+        if not session.headers:
+            session.headers = {"accept-language": "en-US,en;q=0.9"}
+
         base_headers = (session.headers or {}).copy()
         headers = {**base_headers, **(headers or {})}
-        headers.setdefault("content-type", "application/x-www-form-urlencoded; charset=UTF-8")
-        headers.setdefault("origin", "https://www.tiktok.com")
 
-        # Dùng referrer thật (URL video) nếu có
+        # ==== Chuẩn hóa referrer ====
         referrer_url = referrer or "https://www.tiktok.com/"
-        headers["referer"] = referrer_url
+        print("🪶 REFERRER:", referrer_url)
 
-        # Lấy UA từ page
+        # ==== Lấy UA ====
         try:
             ua = await session.page.evaluate("() => navigator.userAgent")
         except Exception:
@@ -617,35 +647,21 @@ class TikTokApi:
         if ua:
             headers["user-agent"] = ua
 
-        # ==== Cookies & CSRF ====
+        # ==== Lấy cookies & CSRF ====
         cookies = await self.get_session_cookies(session)
 
-        # x-tt-csrftoken
         tt_csrf = cookies.get("tt_csrf_token") or cookies.get("tt-csrf-token")
-        if tt_csrf:
-            headers["x-tt-csrftoken"] = tt_csrf
-
-        # x-secsdk-csrf-* (từ passport_csrf_token/_default)
         passport_csrf = cookies.get("passport_csrf_token") or cookies.get("passport_csrf_token_default")
-        if passport_csrf:
-            headers["x-secsdk-csrf-token"] = passport_csrf
-            headers.setdefault("x-secsdk-csrf-version", "1.22.2")
-            headers["x-secsdk-csrf-request"] = "1"
-
-        # x-ware-csrf-token (tùy chọn – nhiều phiên không bắt buộc)
-        headers.setdefault("x-ware-csrf-token", "0,0001000000000000000")
 
         # ==== Query params để ký ====
         params = dict(session.params or {})
         if not params.get("msToken"):
             params["msToken"] = session.ms_token or cookies.get("msToken")
 
-        # verifyFp thường bắt buộc cho POST web
         verify_fp = cookies.get("s_v_web_id")
         if verify_fp:
             params["verifyFp"] = verify_fp
 
-        # Bổ sung các tham số nền như web client
         extra_params = {
             "WebIdLastTime": str(int(time.time() * 1000)),
             "app_name": "tiktok_web",
@@ -668,45 +684,57 @@ class TikTokApi:
         if " " in encoded_url:
             encoded_url = encoded_url.replace(" ", "%20")
 
-        # Điều hướng tới referrer, giữ signals (giữ nguyên)
-        # Ký X-Bogus (giữ nguyên)
+        # ==== Điều hướng tới referrer trước khi ký ====
+        signed_url = encoded_url
+        try:
+            if referrer_url.startswith("https://www.tiktok.com/"):
+                await session.page.goto(referrer_url, wait_until="domcontentloaded")
+                await session.page.mouse.move(24, 48)
+                await session.page.wait_for_timeout(300)
+        except Exception as e:
+            self.logger.warning(f"Referrer goto failed: {e}")
 
-        # ==== Body: thêm aid=1988 ====
+        # ==== Ký X-Bogus ====
+        try:
+            signed_url = await self.sign_url(encoded_url, session_index=i)
+        except Exception as e:
+            self.logger.warning(f"Sign URL failed: {e}")
+
+        # ==== Build body ====
         post_body = dict(data or {})
         post_body.setdefault("aid", "1988")
 
-        # ==== In-page POST (ưu tiên): dùng 'retries' làm số lần thử ====
-        max_attempts = max(1, retries)   # ví dụ: retries=3 -> thử 3 lần in-page
-        attempt = 0
-        while attempt < max_attempts:
+        # ❗ In-page: đừng ép headers – để TikTok tự gắn (TTKRequest/fetch)
+        inpage_headers = {}  # cố tình để trống
+
+        max_attempts = max(1, retries)
+        for attempt in range(max_attempts):
             inpage_result = await self.run_post_script(
-                signed_url, headers=headers, body=post_body, referrer=referrer_url
+                signed_url, headers=inpage_headers, body=post_body, referrer=referrer_url
             )
             try:
                 print("🪶 INPAGE POST:", inpage_result.get("status"), inpage_result.get("statusText"))
             except Exception:
                 pass
 
-            # nếu có body -> parse trả về luôn
             if inpage_result and inpage_result.get("ok") and (inpage_result.get("text") or "").strip():
                 try:
                     return json.loads(inpage_result["text"])
                 except json.decoder.JSONDecodeError:
                     break  # rơi xuống fallback
 
-            # nếu rỗng (thường 1101), reload + re-sign và thử lại
-            attempt += 1
-            if attempt >= max_attempts:
-                break
-            try:
-                await session.page.reload(wait_until="domcontentloaded")
-                await session.page.mouse.move(30, 30)
-                await session.page.wait_for_timeout(450)
-                signed_url = await self.sign_url(encoded_url, session_index=i)
-            except Exception:
-                break
+            # nếu body vẫn rỗng (thường 1101), reload + re-sign thử tiếp
+            if attempt < max_attempts - 1:
+                try:
+                    await session.page.reload(wait_until="domcontentloaded")
+                    await session.page.mouse.move(30, 30)
+                    await session.page.wait_for_timeout(450)
+                    signed_url = await self.sign_url(encoded_url, session_index=i)
+                except Exception as e:
+                    self.logger.warning(f"Retry failed: {e}")
+                    break
 
-        # ==== Fallback: RequestContext ====
+        # --- Fallback: RequestContext (giữ nguyên như bạn đang có) ---
         status, text = await self._post_via_request_context(session, signed_url, post_body, headers)
         print("🪶 DEBUG RESPONSE:", status, text[:500])
         if not (text or "").strip():
