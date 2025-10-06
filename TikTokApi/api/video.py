@@ -272,33 +272,40 @@ class Video:
 
     # ------------------ POST COMMENT ------------------
     async def post_comment(self, text: str, **kwargs) -> dict:
-        """
-        Đăng comment vào video (giống style của comments()).
-        Không captcha, không Playwright — chỉ dùng API request.
-
-        Args:
-            text (str): nội dung bình luận
-            **kwargs: có thể truyền session_index, headers nếu cần
-
-        Returns:
-            dict: phản hồi từ TikTok API
-        """
         if not getattr(self, "id", None):
             raise TypeError("Video.id is missing, cannot post comment.")
         
+        # Build query params like the observed curl: put everything on the URL, body empty
+        i, session = self.parent._get_session(**kwargs)
+        base_params = dict(session.params or {})
+        params = {
+            **base_params,
+            "WebIdLastTime": int(time.time()),
+            "from_page": "video",
+            "user_is_login": "true",
+            "data_collection_enabled": "true",
+            "aweme_id": self.id,
+            "text": text,
+            "text_extra": "[]",
+        }
         resp = await self.parent.make_request_post(
             url="https://www.tiktok.com/api/comment/publish/",
-            data={"aweme_id": self.id, "text": text},
+            data=None,  # empty body -> content-length: 0
+            params=params,
             headers=kwargs.get("headers"),
-            referrer=self.url
+            session_index=kwargs.get("session_index"),
+            referrer=self.url,
+            use_inpage_sign=True,
         )
+        # In case parent.make_request_post is async in this build, await it
+        if asyncio.iscoroutine(resp):
+            resp = asyncio.get_event_loop().run_until_complete(resp)
 
         if resp is None:
             raise InvalidResponseException(resp, "TikTok returned no response.")
 
-        # Kiểm tra kết quả trả về
         status = resp.get("status_code", -1)
-        if status == 0 or resp.get("comment") or resp.get("success"):
+        if status == 0 or resp.get("comment") or resp.get("success") or resp.get("ok") is True:
             return {"ok": True, "message": "Comment posted successfully.", "raw": resp}
         else:
             return {"ok": False, "message": "Failed to post comment.", "raw": resp}
