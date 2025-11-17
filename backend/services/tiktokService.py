@@ -5,22 +5,33 @@ from TikTokApi import TikTokApi
 SESSION_FILE = "tiktok_session.json"
 VIDEO_URL = "https://www.tiktok.com/@nminhdev/video/7520912125636791559"
 
+
 def load_session(filename=SESSION_FILE):
+    """
+    Hàm tạm dùng để test với file JSON (cũ).
+    Ứng dụng chính nên dùng TikTokSession trong database.
+    """
     if not os.path.exists(filename):
         raise Exception("❌ Không tìm thấy file session, hãy chạy sign_in() trước")
-    
+
     with open(filename, "r", encoding="utf-8") as f:
         return json.load(f)["data"]
 
+
 def save_session(data, filename=SESSION_FILE):
+    """
+    Hàm tạm dùng để test với file JSON (cũ).
+    """
     with open(filename, "w", encoding="utf-8") as f:
-        json.dump({
-            "saved_at": datetime.now().isoformat(),
-            "data": data
-        }, f, ensure_ascii=False, indent=4)
+        json.dump(
+            {"saved_at": datetime.now().isoformat(), "data": data},
+            f,
+            ensure_ascii=False,
+            indent=4,
+        )
     print(f"✅ Session saved to: {filename}")
 
-async def sign_in():
+async def build_tiktok_session_payload():
     ms_token = os.getenv("ms_token")
     headless = False
     browser = os.getenv("TIKTOK_BROWSER", "chromium")
@@ -62,15 +73,32 @@ async def sign_in():
         # --- User agent (FIXED) ---
         user_agent = await page.evaluate("() => navigator.userAgent")
 
+        # Lấy thông tin user đang đăng nhập
+        username = "MideFrame"
+        user = api.user(username=username)
+        await user.info()
+
         # Save session
         save_session({
+            "context": context,
             "ms_token": ms_token_extracted,
             "cookies": cookies,
             "storage_state": storage_state,
             "user_agent": user_agent,
+            "username": user.username,
+            "user_id": user.user_id,
+            "sec_uid": user.sec_uid,
             "browser": browser,
-            "headless": headless
+            "headless": headless,
         })
+
+async def sign_in():
+    """
+    Hàm giữ lại cho mục đích test, vẫn lưu session ra file JSON.
+    Ứng dụng chính nên gọi build_tiktok_session_payload() và lưu vào DB.
+    """
+    payload = await build_tiktok_session_payload()
+    save_session(payload)
 
 async def post_comment_with_saved_session(text):
     session_data = load_session()
@@ -147,8 +175,8 @@ async def post_comment_with_saved_session(text):
 #         print(res)
 
 async def main():
-    # await sign_in()
-    await post_comment_with_saved_session("Comment bằng session cũ nè 17/11! 1")
+    await sign_in()
+    # await post_comment_with_saved_session("Comment bằng session cũ nè 17/11! 1")
 
 if __name__ == "__main__":
     asyncio.run(main())
