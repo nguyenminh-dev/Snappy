@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "types": ["node","vite/client"],
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "target": "ESNext"
+  },
+  "include": ["vite.config.ts", "scripts/**/*.ts","vite-env.d.ts"]
+}
