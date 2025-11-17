@@ -5,7 +5,6 @@ from TikTokApi import TikTokApi
 SESSION_FILE = "tiktok_session.json"
 VIDEO_URL = "https://www.tiktok.com/@nminhdev/video/7520912125636791559"
 
-
 def load_session(filename=SESSION_FILE):
     if not os.path.exists(filename):
         raise Exception("❌ Không tìm thấy file session, hãy chạy sign_in() trước")
@@ -20,7 +19,6 @@ def save_session(data, filename=SESSION_FILE):
             "data": data
         }, f, ensure_ascii=False, indent=4)
     print(f"✅ Session saved to: {filename}")
-
 
 async def sign_in():
     ms_token = os.getenv("ms_token")
@@ -74,8 +72,7 @@ async def sign_in():
             "headless": headless
         })
 
-
-async def post_comment_with_saved_session(text="Hello from saved session!"):
+async def post_comment_with_saved_session(text):
     session_data = load_session()
 
     ms_token = session_data["ms_token"]
@@ -89,9 +86,9 @@ async def post_comment_with_saved_session(text="Hello from saved session!"):
         await api.create_sessions(
             ms_tokens=[ms_token],
             num_sessions=1,
-            sleep_after=3,
+            sleep_after=5,
             browser=browser,
-            headless=headless,
+            headless=True,
             suppress_resource_load_types=["image","media","font","stylesheet"],
         )
 
@@ -122,11 +119,36 @@ async def post_comment_with_saved_session(text="Hello from saved session!"):
         res = await video.post_comment(text)
         print("✅ Result:", res)
 
+# async def post_comment_with_new():
+#     ms_token = os.getenv("ms_token")
+#     # headless = os.getenv("headless", "True").lower() == "true"
+#     headless = False
+#     browser = os.getenv("TIKTOK_BROWSER", "chromium")
+
+#     api = TikTokApi()
+#     async with api:
+#         await api.create_sessions(
+#             ms_tokens=[ms_token],
+#             num_sessions=1,
+#             sleep_after=3,
+#             browser=browser,
+#             headless=headless,
+#             suppress_resource_load_types=["image","media","font","stylesheet"],
+#         )
+#         video = api.video(url=VIDEO_URL)
+#         # Quan trọng: nạp info để lấy cookies + context đúng cho trang video
+#         await video.info()
+#         # async for comment in video.comments(count=100):
+#         #     print(comment)
+
+#         await api.ensure_login()
+#         print("🔹 Logged in:", await api.is_logged_in())
+#         res = await video.post_comment("Comment bằng new session nè!")
+#         print(res)
 
 async def main():
     # await sign_in()
-    await post_comment_with_saved_session("Comment bằng session cũ nè!")
-
+    await post_comment_with_saved_session("Comment bằng session cũ nè 17/11! 1")
 
 if __name__ == "__main__":
     asyncio.run(main())
