@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.MODE': JSON.stringify(mode),
       'import.meta.env.VITE_GATEWAY_URL': JSON.stringify(env.VITE_GATEWAY_URL),
       'import.meta.env.VITE_ENV': JSON.stringify(env.VITE_ENV),
+      'import.meta.env.VITE_API_URL': JSON.stringify(env.VITE_API_URL),
     },
     resolve: {
       alias: {

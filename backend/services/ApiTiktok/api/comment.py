@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import ClassVar, AsyncIterator, Optional
 from typing import TYPE_CHECKING, ClassVar, Optional
 
-from TikTokApi.exceptions import InvalidResponseException
-
+from services.ApiTiktok.exceptions import InvalidResponseException
 if TYPE_CHECKING:
     from ..tiktok import TikTokApi
     from .user import User

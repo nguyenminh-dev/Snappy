@@ -1,21 +1,20 @@
-from database.db import db
-from typing import List, Union
-from models.models import User
+from domain.db import db
+from typing import Any, List, Union
 from flask import Response, jsonify
 from werkzeug.wrappers import Response as ResponseType
 
 
-def ok(resource: Union[db.Model, List[db.Model]]) -> ResponseType:
+def ok(resource: Union[Any, List[Any]]) -> Response:
     """
-    Helper function that returns an http status code 200 and the
-    serialized model.
-
-    @param resource: Model or a list of models to be serialized
+    Returns HTTP 200 with serialized model(s)
+    Works for any SQLAlchemy model that implements `serialize()`.
     """
-
-    if isinstance(resource, User):
+    if isinstance(resource, db.Model):
         return jsonify(resource.serialize())
-    return jsonify([res.serialize() for res in resource])
+    elif isinstance(resource, list) and all(isinstance(r, db.Model) for r in resource):
+        return jsonify([r.serialize() for r in resource])
+    else:
+        raise TypeError("Resource must be a SQLAlchemy model or a list of models")
 
 
 def no_content() -> ResponseType:
@@ -26,7 +25,7 @@ def no_content() -> ResponseType:
     return Response(status=204)
 
 
-def created(model: db.Model) -> ResponseType:
+def created(model: Any) -> ResponseType:
     """
     Helper function that returns an http status code 201 and the
     serialized model.

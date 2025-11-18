@@ -38,7 +38,7 @@ class TikTokPlaywrightSession:
     base_url: str = "https://www.tiktok.com"
 
 
-class TikTokApi:
+class ApiTiktok:
     """The main TikTokApi class that contains all the endpoints.
 
     Import With:

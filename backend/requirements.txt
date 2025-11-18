@@ -1,3 +1,12 @@
-flask
-flask_sqlalchemy
-python-dotenv
+Flask==2.3.3
+Werkzeug>=2.3.7
+Flask-SQLAlchemy==3.0.5
+Flask-Migrate==4.0.4
+Flask-Cors==3.0.10
+flasgger>=0.9.7
+python-dotenv==1.0.0
+psycopg2-binary==2.9.6
+playwright>=1.40.0
+requests>=2.31.0
+httpx>=0.25.0
+pytest>=7.4.0

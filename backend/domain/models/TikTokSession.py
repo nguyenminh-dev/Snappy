@@ -4,61 +4,7 @@ import json
 from typing import Any, Dict, Optional, Union
 
 from domain.db import db
-from domain.models.AggregateRoot import AggregateRoot
-
-
-def _safe_json_load(text: Optional[str]) -> Optional[Union[dict, list]]:
-    """Load JSON string an toàn, trả về None nếu lỗi hoặc text rỗng."""
-    if not text:
-        return None
-    try:
-        return json.loads(text)
-    except Exception:
-        # Có thể log lỗi ở đây nếu cần
-        return None
-
-
-def _safe_json_dumps(obj: Any) -> Optional[str]:
-    """Dump object sang JSON string an toàn, trả về None nếu obj là None."""
-    if obj is None:
-        return None
-    try:
-        return json.dumps(obj, ensure_ascii=False)
-    except Exception:
-        return None
-
-
-def _parse_datetime(value: Optional[Union[str, int, float, datetime]]) -> datetime:
-    """
-    Chuyển value sang datetime an toàn.
-    - Nếu value là datetime -> trả về trực tiếp
-    - Nếu là ISO string -> try fromisoformat
-    - Nếu là số (timestamp) -> từ timestamp
-    - Ngược lại -> datetime.utcnow()
-    """
-    if value is None:
-        return datetime.utcnow()
-    if isinstance(value, datetime):
-        return value
-    if isinstance(value, (int, float)):
-        try:
-            return datetime.utcfromtimestamp(float(value))
-        except Exception:
-            return datetime.utcnow()
-    if isinstance(value, str):
-        try:
-            # Hỗ trợ cả ISO và các dạng có timezone
-            # fromisoformat hỗ trợ 'YYYY-MM-DDTHH:MM:SS' (python3.7+)
-            return datetime.fromisoformat(value)
-        except Exception:
-            # thử parse đơn giản (nếu string là timestamp số)
-            try:
-                ts = float(value)
-                return datetime.utcfromtimestamp(ts)
-            except Exception:
-                return datetime.utcnow()
-    return datetime.utcnow()
-
+from domain.models.AggregateRoot import AggregateRoot, _parse_datetime, _safe_json_dumps, _safe_json_load
 
 class TikTokSession(AggregateRoot, db.Model):
     __tablename__ = "AppTikTokSession"
@@ -67,7 +13,6 @@ class TikTokSession(AggregateRoot, db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
 
     # Thông tin account
-    tiktok_id = db.Column(db.String(128), nullable=True)
     tiktok_name = db.Column(db.String(256), nullable=True)
 
     # Các trường session
@@ -95,7 +40,6 @@ class TikTokSession(AggregateRoot, db.Model):
         """
         return {
             "id": self.id,
-            "tiktok_id": self.tiktok_id,
             "tiktok_name": self.tiktok_name,
             "ms_token": self.ms_token,
             "cookies": _safe_json_load(self.cookies),
@@ -138,7 +82,6 @@ class TikTokSession(AggregateRoot, db.Model):
             headless_val = headless_val.lower() in ("1", "true", "yes", "y")
 
         instance = TikTokSession(
-            tiktok_id=payload.get("tiktok_id"),
             tiktok_name=payload.get("tiktok_name"),
             ms_token=payload.get("ms_token"),
             cookies=cookies_json,
@@ -157,9 +100,7 @@ class TikTokSession(AggregateRoot, db.Model):
         """
         if not isinstance(payload, dict):
             return
-
-        if "tiktok_id" in payload:
-            self.tiktok_id = payload.get("tiktok_id")
+        
         if "tiktok_name" in payload:
             self.tiktok_name = payload.get("tiktok_name")
         if "ms_token" in payload:
