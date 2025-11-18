@@ -5,6 +5,8 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000/api/
 export interface TikTokSession {
   id: number;
   tiktok_name?: string;
+  account?: string;
+  password?: string;
   ms_token?: string;
   cookies?: any[];
   storage_state?: any;
@@ -73,6 +75,18 @@ class TikTokSessionService {
 
   async deleteSession(id: number): Promise<void> {
     await axios.delete(`${this.baseUrl}/session/${id}`);
+  }
+
+  async previewImport(formData: FormData): Promise<{ total: number; accounts: TikTokSessionCreate[] }> {
+    const response = await axios.post(`${this.baseUrl}/session/import/preview`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  }
+
+  async importSessions(accounts: TikTokSessionCreate[]): Promise<any> {
+    const response = await axios.post(`${this.baseUrl}/session/import`, { accounts });
+    return response.data;
   }
 }
 

@@ -11,12 +11,12 @@ import {
   Row,
   Col,
   Alert,
-  Spin,
+  Tag,
 } from 'antd';
 import { SendOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { tiktokSessionService, TikTokSession } from '../services/tiktokSessionService';
-import { autoCommentService, PostCommentRequest } from '../services/autoCommentService';
+import { autoCommentService } from '../services/autoCommentService';
 import TikTokLayout from '../components/TikTokLayout';
 
 const { Title, Paragraph } = Typography;
@@ -28,6 +28,9 @@ const AutoCommentPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  const [selectedSessionIds, setSelectedSessionIds] = useState<number[]>([]);
+  const [commentMap, setCommentMap] = useState<Record<number, string>>({});
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<number, boolean>>({});
 
   const loadSessions = async () => {
     setLoading(true);
@@ -45,30 +48,71 @@ const AutoCommentPage: React.FC = () => {
     loadSessions();
   }, []);
 
+  const handleSelectSessions = (ids: number[]) => {
+    setSelectedSessionIds(ids);
+    setCommentMap((prev) => {
+      const updated = { ...prev };
+      ids.forEach((id) => {
+        if (!(id in updated)) {
+          updated[id] = '';
+        }
+      });
+      Object.keys(updated).forEach((key) => {
+        const numericKey = Number(key);
+        if (!ids.includes(numericKey)) {
+          delete updated[numericKey];
+        }
+      });
+      return updated;
+    });
+  };
+
   const handleSubmit = async (values: any) => {
-    if (!values.video_url || !values.text || !values.session_id) {
-      message.warning('Vui lòng điền đầy đủ thông tin');
+    const videoUrl = values.video_url;
+    const sessionIds: number[] = values.session_ids || [];
+
+    if (!videoUrl) {
+      message.warning('Vui lòng nhập URL video');
+      return;
+    }
+
+    if (!sessionIds.length) {
+      message.warning('Vui lòng chọn ít nhất một tài khoản');
+      return;
+    }
+
+    const payload = sessionIds.map((id) => ({
+      session_id: id,
+      text: (commentMap[id] || '').trim(),
+    }));
+
+    if (payload.some((item) => !item.text)) {
+      message.warning('Vui lòng nhập comment cho tất cả tài khoản đã chọn');
       return;
     }
 
     setSubmitting(true);
     try {
-      const result = await autoCommentService.postComment(values.session_id, {
-        video_url: values.video_url,
-        text: values.text,
+      await autoCommentService.postCommentBatch({
+        video_url: videoUrl,
+        comments: payload,
       });
-      
-      if (result.success) {
-        message.success('Comment đã được đăng thành công!');
-        form.resetFields(['video_url', 'text']);
-      } else {
-        message.error(result.message || 'Có lỗi xảy ra');
-      }
+      message.success(`Đã gửi ${payload.length} comment`);
+      form.resetFields(['session_ids', 'video_url']);
+      setSelectedSessionIds([]);
+      setCommentMap({});
     } catch (error: any) {
       message.error('Không thể đăng comment: ' + (error.response?.data || error.message));
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const togglePasswordVisibility = (id: number) => {
+    setVisiblePasswords((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }));
   };
 
   return (
@@ -122,11 +166,12 @@ const AutoCommentPage: React.FC = () => {
           style={{ maxWidth: 800 }}
         >
           <Form.Item
-            name="session_id"
+            name="session_ids"
             label="Chọn tài khoản TikTok"
             rules={[{ required: true, message: 'Vui lòng chọn tài khoản' }]}
           >
             <Select
+              mode="multiple"
               placeholder={sessions.length === 0 ? "Chưa có tài khoản nào. Vui lòng thêm tài khoản trước." : "Chọn tài khoản TikTok"}
               loading={loading}
               showSearch
@@ -139,6 +184,7 @@ const AutoCommentPage: React.FC = () => {
                 value: session.id,
                 label: `${session.tiktok_name || `Session #${session.id}`} (${session.browser || 'chromium'})`,
               }))}
+              onChange={(ids) => handleSelectSessions(ids as number[])}
             />
           </Form.Item>
 
@@ -156,21 +202,61 @@ const AutoCommentPage: React.FC = () => {
             />
           </Form.Item>
 
-          <Form.Item
-            name="text"
-            label="Nội dung Comment"
-            rules={[
-              { required: true, message: 'Vui lòng nhập nội dung comment' },
-              { max: 500, message: 'Comment không được quá 500 ký tự' },
-            ]}
-          >
-            <TextArea
-              rows={4}
-              placeholder="Nhập nội dung comment..."
-              showCount
-              maxLength={500}
-            />
-          </Form.Item>
+          {selectedSessionIds.length > 0 && (
+            <Card
+              type="inner"
+              title="Nội dung comment cho từng tài khoản"
+              style={{ marginBottom: 24 }}
+            >
+              <Space direction="vertical" style={{ width: '100%' }} size="large">
+                {selectedSessionIds.map((id) => {
+                  const session = sessions.find((s) => s.id === id);
+                  if (!session) return null;
+                  const password = session.password || '';
+                  const passwordVisible = visiblePasswords[id];
+
+                  return (
+                    <Card key={id} size="small" style={{ background: '#fafafa' }}>
+                      <Space direction="vertical" style={{ width: '100%' }}>
+                        <Space wrap>
+                          <Tag color="blue">{session.tiktok_name || `Session #${session.id}`}</Tag>
+                          {session.account && <Tag>{session.account}</Tag>}
+                          {password && (
+                            <Tag>
+                              <Space size="small">
+                                Password:
+                                <span>{passwordVisible ? password : '••••••'}</span>
+                                <Button
+                                  type="link"
+                                  size="small"
+                                  onClick={() => togglePasswordVisibility(id)}
+                                >
+                                  {passwordVisible ? 'Ẩn' : 'Hiện'}
+                                </Button>
+                              </Space>
+                            </Tag>
+                          )}
+                        </Space>
+                        <TextArea
+                          rows={3}
+                          placeholder="Nhập nội dung comment cho tài khoản này..."
+                          showCount
+                          maxLength={500}
+                          value={commentMap[id] || ''}
+                          onChange={(e) =>
+                            setCommentMap((prev) => ({
+                              ...prev,
+                              [id]: e.target.value,
+                            }))
+                          }
+                        />
+                      </Space>
+                    </Card>
+                  );
+                })}
+              </Space>
+            </Card>
+          )}
 
           <Form.Item>
             <Button

@@ -1,10 +1,16 @@
 from flask import Blueprint, request, jsonify, Response
 from sqlalchemy import desc
+import pandas as pd
+import asyncio
 
 from domain.db import db
 from domain.models.TikTokSession import TikTokSession
-from services.tiktokService import build_tiktok_session_payload, post_comment_with_saved_session
-import asyncio
+from services.tiktokService import (
+    build_tiktok_session_payload,
+    post_comment_with_ui,
+    auto_comment_with_ui,
+    build_session_from_account,
+)
 
 tiktok_session_blueprint = Blueprint("tiktok_session_blueprint", __name__)
 
@@ -19,6 +25,35 @@ def _get_session_by_id(id: int) -> TikTokSession | None:
 
 def _get_latest_session() -> TikTokSession | None:
     return TikTokSession.query.order_by(desc(TikTokSession.id)).first()
+
+
+def _parse_accounts_from_excel(file_storage):
+    try:
+        df = pd.read_excel(file_storage)
+    except Exception:
+        raise ValueError("Invalid Excel file")
+
+    accounts = []
+
+    def extract_value(row, keys):
+        for key in keys:
+            if key in row and not pd.isna(row[key]):
+                return str(row[key]).strip()
+        return None
+
+    for _, row in df.iterrows():
+        account = extract_value(row, ["account", "Account", "email", "Email", "username", "Username"])
+        password = extract_value(row, ["password", "Password", "pass"])
+        username = extract_value(row, ["tiktok_name", "TikTokName", "UserName", "username", "Username"]) or account
+
+        if account and password:
+            accounts.append({
+                "account": account,
+                "password": password,
+                "tiktok_name": username
+            })
+
+    return accounts
 
 
 # --------------------------------------------------------
@@ -207,6 +242,214 @@ def auto_create_tiktok_session():
     return jsonify(session.to_dict()), 201
 
 
+@tiktok_session_blueprint.route("/tiktok/session/import/preview", methods=["POST"])
+def preview_import_tiktok_sessions():
+    """
+    Parse file Excel và trả về danh sách tài khoản để người dùng lựa chọn.
+    ---
+    tags:
+      - TikTok Session
+    consumes:
+      - multipart/form-data
+    parameters:
+      - name: file
+        in: formData
+        type: file
+        required: true
+        description: File Excel chứa các cột Account, Password, UserName
+    responses:
+      200:
+        description: Danh sách tài khoản parse được
+    """
+    file = request.files.get("file")
+    if file is None:
+        return Response("Missing file", status=400)
+
+    try:
+        accounts = _parse_accounts_from_excel(file)
+    except ValueError as ex:
+        return Response(str(ex), status=400)
+
+    return jsonify({
+        "total": len(accounts),
+        "accounts": accounts
+    }), 200
+
+
+@tiktok_session_blueprint.route("/tiktok/session/import", methods=["POST"])
+def import_tiktok_sessions():
+    """
+    Đăng nhập các tài khoản đã chọn và lưu session.
+    ---
+    tags:
+      - TikTok Session
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            accounts:
+              type: array
+              items:
+                type: object
+                properties:
+                  account:
+                    type: string
+                  password:
+                    type: string
+                  tiktok_name:
+                    type: string
+          required:
+            - accounts
+    responses:
+      200:
+        description: Kết quả import
+    """
+    accounts_payload = None
+    file = request.files.get("file")
+
+    if file:
+        try:
+            accounts_payload = _parse_accounts_from_excel(file)
+        except ValueError as ex:
+            return Response(str(ex), status=400)
+    else:
+        data = request.get_json(silent=True) or {}
+        accounts_payload = data.get("accounts")
+
+    if not accounts_payload:
+        return Response("Missing accounts", status=400)
+
+    results = []
+
+    for account_info in accounts_payload:
+        account = account_info.get("account")
+        password = account_info.get("password")
+        username = account_info.get("tiktok_name") or account
+
+        if not account or not password:
+            results.append({
+                "account": account,
+                "status": "skipped",
+                "reason": "Missing account or password"
+            })
+            continue
+
+        try:
+            payload = asyncio.run(build_session_from_account(account, password, username))
+            if payload is None:
+                results.append({
+                    "account": account,
+                    "status": "failed",
+                    "reason": "Login failed"
+                })
+                continue
+
+            payload["account"] = account
+            payload["password"] = password
+
+            existing = TikTokSession.query.filter_by(account=account).first()
+            if existing:
+                existing.update_from_payload(payload)
+                action = "updated"
+            else:
+                session = TikTokSession.from_session_payload(payload)
+                db.session.add(session)
+                action = "created"
+
+            db.session.commit()
+            results.append({
+                "account": account,
+                "status": "success",
+                "action": action
+            })
+        except Exception as ex:
+            db.session.rollback()
+            results.append({
+                "account": account,
+                "status": "failed",
+                "reason": str(ex)
+            })
+
+    return jsonify({
+        "total": len(results),
+        "results": results
+    }), 200
+
+
+@tiktok_session_blueprint.route("/tiktok/auto-comment", methods=["POST"])
+def auto_comment_multiple_accounts():
+    """
+    Đăng nhiều comment vào cùng một video bằng nhiều tài khoản.
+    ---
+    tags:
+      - TikTok Session
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            video_url:
+              type: string
+              description: URL video TikTok
+            comments:
+              type: array
+              items:
+                type: object
+                properties:
+                  session_id:
+                    type: integer
+                  text:
+                    type: string
+          required:
+            - video_url
+            - comments
+    responses:
+      200:
+        description: Kết quả đăng comment
+    """
+    body = request.get_json(silent=True)
+    if body is None:
+        return Response("Invalid JSON.", status=400)
+
+    video_url = body.get("video_url")
+    comments = body.get("comments")
+
+    if not video_url or not comments:
+        return Response("Missing video_url or comments", status=400)
+
+    items = []
+    for comment in comments:
+        session_id = comment.get("session_id")
+        text = comment.get("text")
+
+        if not session_id or not text:
+            return Response("Each comment entry must include session_id and text", status=400)
+
+        session = _get_session_by_id(session_id)
+        if session is None:
+            return Response(f"TikTok session {session_id} not found.", status=404)
+
+        items.append({
+            "session_data": session.to_dict(),
+            "text": text,
+            "video_url": video_url,
+        })
+
+    try:
+        results = asyncio.run(auto_comment_with_ui(items))
+        return jsonify({
+            "success": True,
+            "results": results,
+        }), 200
+    except Exception as ex:
+        return Response(str(ex), status=400)
+
+
 @tiktok_session_blueprint.route("/tiktok/session/<int:id>", methods=["PUT"])
 def update_session(id: int):
     """
@@ -313,7 +556,7 @@ def post_comment_by_session_id(id: int):
     
     try:
         session_data = session.to_dict()
-        result = asyncio.run(post_comment_with_saved_session(session_data, text, video_url))
+        result = asyncio.run(post_comment_with_ui(session_data, text, video_url))
         return jsonify({
             "success": True,
             "message": "Comment posted successfully",

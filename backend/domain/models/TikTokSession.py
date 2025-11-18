@@ -14,6 +14,8 @@ class TikTokSession(AggregateRoot, db.Model):
 
     # Thông tin account
     tiktok_name = db.Column(db.String(256), nullable=True)
+    account = db.Column(db.String(255), unique=True, nullable=True)
+    password = db.Column(db.String(255), nullable=True)
 
     # Các trường session
     ms_token = db.Column(db.String(512), nullable=True)
@@ -41,6 +43,8 @@ class TikTokSession(AggregateRoot, db.Model):
         return {
             "id": self.id,
             "tiktok_name": self.tiktok_name,
+            "account": self.account,
+            "password": self.password,
             "ms_token": self.ms_token,
             "cookies": _safe_json_load(self.cookies),
             "storage_state": _safe_json_load(self.storage_state),
@@ -83,6 +87,8 @@ class TikTokSession(AggregateRoot, db.Model):
 
         instance = TikTokSession(
             tiktok_name=payload.get("tiktok_name"),
+            account=payload.get("account"),
+            password=payload.get("password"),
             ms_token=payload.get("ms_token"),
             cookies=cookies_json,
             storage_state=storage_json,
@@ -103,6 +109,10 @@ class TikTokSession(AggregateRoot, db.Model):
         
         if "tiktok_name" in payload:
             self.tiktok_name = payload.get("tiktok_name")
+        if "account" in payload:
+            self.account = payload.get("account")
+        if "password" in payload:
+            self.password = payload.get("password")
         if "ms_token" in payload:
             self.ms_token = payload.get("ms_token")
 
