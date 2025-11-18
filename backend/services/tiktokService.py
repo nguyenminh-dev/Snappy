@@ -131,17 +131,10 @@ async def build_session_from_account(account, password, username):
         await page.click("button[type='submit']")
 
         # Chờ xác nhận login thành công (ví dụ selector avatar hoặc home page)
-        # try:
-        #     await page.wait_for_selector("div[data-e2e='home-feed']", timeout=10000)
-        #     print(f"✅ Login thành công: {account}")
-        # except:
-        #     print(f"❌ Login thất bại hoặc CAPTCHA: {account}")
-
-        # Kiểm tra login
-        logged_in = await api.is_logged_in()
-        if not logged_in:
-            print(f"❌ Login thất bại: {username}")
-            return None
+        for _ in range(120):
+            await asyncio.sleep(1)
+            if await api.is_logged_in():
+                print(f"✅ Login thành công: {account}")
 
         # --- Cookies + storage ---
         cookies = await context.cookies()
