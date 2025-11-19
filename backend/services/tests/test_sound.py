@@ -1,4 +1,4 @@
-from TikTokApi import TikTokApi
+from ApiTiktok import ApiTiktok
 import os
 import pytest
 
@@ -9,7 +9,7 @@ song_id = "7016547803243022337"
 
 @pytest.mark.asyncio
 async def test_sound_videos():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         sound = api.sound(id=song_id)
@@ -22,7 +22,7 @@ async def test_sound_videos():
 
 @pytest.mark.asyncio
 async def test_sound_info():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         sound = api.sound(id=song_id)

@@ -5,13 +5,13 @@ from .user import User
 from ..exceptions import InvalidResponseException
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import ApiTiktok
 
 
 class Search:
     """Contains static methods about searching TikTok for a phrase."""
 
-    parent: TikTokApi
+    parent: ApiTiktok
 
     @staticmethod
     async def users(search_term, count=10, cursor=0, **kwargs) -> AsyncIterator[User]:
@@ -25,7 +25,7 @@ class Search:
             count (int): The amount of users you want returned.
 
         Returns:
-            async iterator/generator: Yields TikTokApi.user objects.
+            async iterator/generator: Yields ApiTiktok.user objects.
 
         Raises:
             InvalidResponseException: If TikTok returns an invalid response, or one we don't understand.
@@ -58,7 +58,7 @@ class Search:
             cursor (int): The the offset of users from 0 you want to get.
 
         Returns:
-            async iterator/generator: Yields TikTokApi.video objects.
+            async iterator/generator: Yields ApiTiktok.video objects.
 
         Raises:
             InvalidResponseException: If TikTok returns an invalid response, or one we don't understand.

@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, ClassVar, AsyncIterator, Optional
 from ..exceptions import InvalidResponseException
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import ApiTiktok
     from .video import Video
     from .playlist import Playlist
 
@@ -18,7 +18,7 @@ class User:
             user = api.user(username='therock')
     """
 
-    parent: ClassVar[TikTokApi]
+    parent: ClassVar[ApiTiktok]
 
     user_id: str
     """The  ID of the user."""
@@ -93,7 +93,7 @@ class User:
         Returns a user's playlists.
 
         Returns:
-            async iterator/generator: Yields TikTokApi.playlist objects.
+            async iterator/generator: Yields ApiTiktok.playlist objects.
 
         Raises:
             InvalidResponseException: If TikTok returns an invalid response, or one we don't understand.
@@ -146,7 +146,7 @@ class User:
             cursor (int): The the offset of videos from 0 you want to get.
 
         Returns:
-            async iterator/generator: Yields TikTokApi.video objects.
+            async iterator/generator: Yields ApiTiktok.video objects.
 
         Raises:
             InvalidResponseException: If TikTok returns an invalid response, or one we don't understand.
@@ -201,7 +201,7 @@ class User:
             cursor (int): The the offset of likes from 0 you want to get.
 
         Returns:
-            async iterator/generator: Yields TikTokApi.video objects.
+            async iterator/generator: Yields ApiTiktok.video objects.
 
         Raises:
             InvalidResponseException: If TikTok returns an invalid response, the user's likes are private, or one we don't understand.
@@ -279,4 +279,4 @@ class User:
         username = getattr(self, "username", None)
         user_id = getattr(self, "user_id", None)
         sec_uid = getattr(self, "sec_uid", None)
-        return f"TikTokApi.user(username='{username}', user_id='{user_id}', sec_uid='{sec_uid}')"
+        return f"ApiTiktok.user(username='{username}', user_id='{user_id}', sec_uid='{sec_uid}')"

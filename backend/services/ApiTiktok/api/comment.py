@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, ClassVar, Optional
 
 from services.ApiTiktok.exceptions import InvalidResponseException
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import ApiTiktok
     from .user import User
 
 
@@ -21,7 +21,7 @@ class Comment:
                 print(comment.as_dict)
     """
 
-    parent: ClassVar[TikTokApi]
+    parent: ClassVar[ApiTiktok]
 
     id: str
     """The id of the comment"""
@@ -89,4 +89,4 @@ class Comment:
         id = getattr(self, "id", None)
         text = getattr(self, "text", None)
         like_count = getattr(self, "likes_count", None)
-        return f"TikTokApi.comment(comment_id='{id}', text='{text}', likes_count='{like_count}')"
+        return f"ApiTiktok.comment(comment_id='{id}', text='{text}', likes_count='{like_count}')"

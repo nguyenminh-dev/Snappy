@@ -3,7 +3,7 @@ from ..exceptions import *
 from typing import TYPE_CHECKING, ClassVar, Iterator, Optional
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import ApiTiktok
     from .user import User
     from .video import Video
 
@@ -18,7 +18,7 @@ class Sound:
             song = api.song(id='7016547803243022337')
     """
 
-    parent: ClassVar[TikTokApi]
+    parent: ClassVar[ApiTiktok]
 
     id: str
     """TikTok's ID for the sound"""
@@ -93,7 +93,7 @@ class Sound:
             cursor (int): The the offset of videos from 0 you want to get.
 
         Returns:
-            async iterator/generator: Yields TikTokApi.video objects.
+            async iterator/generator: Yields ApiTiktok.video objects.
 
         Raises:
             InvalidResponseException: If TikTok returns an invalid response, or one we don't understand.
@@ -176,4 +176,4 @@ class Sound:
         return self.__str__()
 
     def __str__(self):
-        return f"TikTokApi.sound(id='{getattr(self, 'id', None)}')"
+        return f"ApiTiktok.sound(id='{getattr(self, 'id', None)}')"

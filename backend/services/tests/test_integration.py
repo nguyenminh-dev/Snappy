@@ -1,4 +1,4 @@
-from TikTokApi import TikTokApi
+from ApiTiktok import ApiTiktok
 import os
 import pytest
 
@@ -8,7 +8,7 @@ headless = os.environ.get("headless", "True").lower() == "true"
 
 @pytest.mark.asyncio
 async def test_hashtag_videos():
-    async with TikTokApi() as api:
+    async with ApiTiktok() as api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         tag_name = "funny"
         count = 0

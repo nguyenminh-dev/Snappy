@@ -1,4 +1,4 @@
-from TikTokApi import TikTokApi
+from ApiTiktok import ApiTiktok
 import os
 import pytest
 
@@ -12,7 +12,7 @@ headless = os.environ.get("headless", "True").lower() == "true"
 
 @pytest.mark.asyncio
 async def test_playlist_info():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, headless=headless)
         playlist = api.playlist(id=playlist_id)
@@ -27,7 +27,7 @@ async def test_playlist_info():
 
 @pytest.mark.asyncio
 async def test_playlist_videos():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, headless=headless)
         playlist = api.playlist(id=playlist_id)

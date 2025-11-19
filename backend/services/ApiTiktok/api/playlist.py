@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, ClassVar, AsyncIterator, Optional
 from ..exceptions import InvalidResponseException
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import ApiTiktok
     from .video import Video
     from .user import User
 
@@ -18,7 +18,7 @@ class Playlist:
             playlist = api.playlist(id='7426714779919797038')
     """
 
-    parent: ClassVar[TikTokApi]
+    parent: ClassVar[ApiTiktok]
 
     id: Optional[str]
     """The ID of the playlist."""
@@ -164,4 +164,4 @@ class Playlist:
 
     def __str__(self):
         id = getattr(self, "id", None)
-        return f"TikTokApi.playlist(id='{id}'')"
+        return f"ApiTiktok.playlist(id='{id}'')"

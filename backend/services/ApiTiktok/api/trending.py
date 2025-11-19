@@ -5,13 +5,13 @@ from .video import Video
 from typing import TYPE_CHECKING, AsyncIterator
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import ApiTiktok
 
 
 class Trending:
     """Contains static methods related to trending objects on TikTok."""
 
-    parent: TikTokApi
+    parent: ApiTiktok
 
     @staticmethod
     async def videos(count=30, **kwargs) -> AsyncIterator[Video]:
@@ -22,7 +22,7 @@ class Trending:
             count (int): The amount of videos you want returned.
 
         Returns:
-            async iterator/generator: Yields TikTokApi.video objects.
+            async iterator/generator: Yields ApiTiktok.video objects.
 
         Raises:
             InvalidResponseException: If TikTok returns an invalid response, or one we don't understand.

@@ -1,4 +1,4 @@
-from TikTokApi import TikTokApi
+from ApiTiktok import ApiTiktok
 import os
 import pytest
 
@@ -12,7 +12,7 @@ headless = os.environ.get("headless", "True").lower() == "true"
 
 @pytest.mark.asyncio
 async def test_user_info():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         user = api.user(username=username)
@@ -24,7 +24,7 @@ async def test_user_info():
 
 @pytest.mark.asyncio
 async def test_user_videos():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         user = api.user(username=username, sec_uid=sec_uid, user_id=user_id)
@@ -37,7 +37,7 @@ async def test_user_videos():
 
 @pytest.mark.asyncio
 async def test_user_likes():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         user = api.user(
@@ -53,7 +53,7 @@ async def test_user_likes():
 
 @pytest.mark.asyncio
 async def test_user_playlists():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         user = api.user(username="mrbeast")

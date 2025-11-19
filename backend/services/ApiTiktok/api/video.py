@@ -11,7 +11,7 @@ import time
 import os
 
 if TYPE_CHECKING:
-    from ..tiktok import TikTokApi
+    from ..tiktok import ApiTiktok
     from .user import User
     from .sound import Sound
     from .hashtag import Hashtag
@@ -28,7 +28,7 @@ class Video:
     ```
     """
 
-    parent: ClassVar[TikTokApi]
+    parent: ClassVar[ApiTiktok]
 
     id: Optional[str]
     """TikTok's ID of the Video"""
@@ -268,7 +268,7 @@ class Video:
         return self.__str__()
 
     def __str__(self):
-        return f"TikTokApi.video(id='{getattr(self, 'id', None)}')"
+        return f"ApiTiktok.video(id='{getattr(self, 'id', None)}')"
 
     # ------------------ POST COMMENT ------------------
     async def post_comment(self, text: str, **kwargs) -> dict:

@@ -39,13 +39,13 @@ class TikTokPlaywrightSession:
 
 
 class ApiTiktok:
-    """The main TikTokApi class that contains all the endpoints.
+    """The main ApiTiktok class that contains all the endpoints.
 
     Import With:
         .. code-block:: python
 
-            from TikTokApi import TikTokApi
-            api = TikTokApi()
+            from ApiTiktok import ApiTiktok
+            api = ApiTiktok()
     """
 
     user = User
@@ -59,7 +59,7 @@ class ApiTiktok:
 
     def __init__(self, logging_level: int = logging.WARN, logger_name: str = None):
         """
-        Create a TikTokApi object.
+        Create a ApiTiktok object.
 
         Args:
             logging_level (int): The logging level you want to use.
@@ -333,7 +333,7 @@ class ApiTiktok:
             )
 
             if result is None:
-                raise Exception("TikTokApi.run_fetch_script returned None")
+                raise Exception("ApiTiktok.run_fetch_script returned None")
 
             if result == "":
                 raise EmptyResponseException(result, "TikTok returned an empty response. They are detecting you're a bot, try some of these: headless=False, browser='webkit', consider using a proxy")

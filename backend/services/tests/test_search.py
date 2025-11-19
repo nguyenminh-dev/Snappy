@@ -1,4 +1,4 @@
-from TikTokApi import TikTokApi
+from ApiTiktok import ApiTiktok
 import os
 import pytest
 
@@ -7,7 +7,7 @@ headless = os.environ.get("headless", "True").lower() == "true"
 
 @pytest.mark.asyncio
 async def test_users_single_page():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         count = 0
@@ -19,7 +19,7 @@ async def test_users_single_page():
 #@pytest.mark.asyncio
 @pytest.mark.skip(reason="Known issue, see #1088 (https://github.com/davidteather/TikTok-Api/issues/1088)")
 async def test_users_multi_page():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         count = 0

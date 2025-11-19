@@ -1,4 +1,4 @@
-from TikTokApi import TikTokApi
+from ApiTiktok import ApiTiktok
 import os
 import pytest
 
@@ -8,7 +8,7 @@ headless = os.environ.get("headless", "True").lower() == "true"
 
 @pytest.mark.asyncio
 async def test_video_id_from_url():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
 
@@ -27,7 +27,7 @@ async def test_video_id_from_url():
 
 @pytest.mark.asyncio
 async def test_video_info():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         video_id = "7074717081563942186"
@@ -44,7 +44,7 @@ async def test_video_info():
 @pytest.mark.asyncio
 async def test_video_bytes():
     pytest.skip("Not implemented yet")
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         video_id = "7107272719166901550"
@@ -56,7 +56,7 @@ async def test_video_bytes():
 
 @pytest.mark.asyncio
 async def test_related_videos():
-    api = TikTokApi()
+    api = ApiTiktok()
     async with api:
         await api.create_sessions(ms_tokens=[ms_token], num_sessions=1, sleep_after=3, browser=os.getenv("TIKTOK_BROWSER", "chromium"), headless=headless)
         video_id = "7107272719166901550"

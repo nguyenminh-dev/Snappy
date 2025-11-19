@@ -3,6 +3,8 @@ import os, json, asyncio
 import random
 from services.ApiTiktok.tiktok import ApiTiktok
 import pandas as pd
+from contracts.TikTokVideoDto import TikTokVideoDto
+from .mapper import map_tiktok_response_to_dto
 
 SESSION_FILE = "tiktok_session.json"
 VIDEO_URL = "https://www.tiktok.com/@nminhdev/video/7520912125636791559"
@@ -31,6 +33,19 @@ def save_session(data, filename=SESSION_FILE):
             indent=4,
         )
     print(f"✅ Session saved to: {filename}")
+
+def save_to_file(data, filename):
+    """
+    Hàm tạm dùng để test với file JSON (cũ).
+    """
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(
+            {"saved_at": datetime.now().isoformat(), "data": data},
+            f,
+            ensure_ascii=False,
+            indent=4,
+        )
+    print(f"✅ Saved to: {filename}")
 
 async def build_tiktok_session_payload(username):
     ms_token = os.getenv("ms_token")
@@ -368,11 +383,44 @@ async def auto_comment_with_ui(comments_list):
     return results
 
 # Phân tích video
-async def analysis_video(session_data, video_url, top_comment_count):
-    return
+async def analysis_video(video_url, top_comment_count=10):
+    ms_token = os.getenv("ms_token")
+    headless = os.getenv("headless", "True").lower() == "true"
+    browser = os.getenv("TIKTOK_BROWSER", "chromium")
+
+    api = ApiTiktok()
+    async with api:
+        await api.create_sessions(
+            ms_tokens=[ms_token],
+            num_sessions=1,
+            sleep_after=3,
+            browser=browser,
+            headless=headless,
+            suppress_resource_load_types=["image","media","font","stylesheet"]
+        )
+        
+        video = api.video(id='7565937427274140946')
+
+        # Thông tin tổng quan video
+        # data = await video.info()
+        # save_to_file(data=data, filename="video_data.json")
+        # result = map_tiktok_response_to_dto(data)
+        # print(result)
+
+        # Top comment
+        # comment_count = result.stats.commentCount
+        comments = []
+        async for comment in video.comments():
+            # comments.append(comment)
+            print(comment.text - comment.likes_count)
+        save_to_file(data=comments, filename="total_comment.json")
+
+
+        # return result
 
 async def main():
-    await auto_login_from_excel("accounts.xlsx")
+    session = load_session()
+    await analysis_video(video_url="https://www.tiktok.com/@kts_tuanviet/video/7565937427274140946")
     return
 
 if __name__ == "__main__":
