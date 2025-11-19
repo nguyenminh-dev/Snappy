@@ -85,6 +85,7 @@ async def build_tiktok_session_payload(username):
             "tiktok_name": username
         }
 
+# login bằng thao tác người dùng
 async def sign_in(username):
     """
     Hàm giữ lại cho mục đích test, vẫn lưu session ra file JSON.
@@ -93,6 +94,7 @@ async def sign_in(username):
     payload = await build_tiktok_session_payload(username)
     save_session(payload)
 
+# login bằng tài khoản + mật khẩu
 async def build_session_from_account(account, password, username):
     print("login", account, password, username)
     """Login TikTok, lưu session, trả về payload"""
@@ -135,6 +137,7 @@ async def build_session_from_account(account, password, username):
             await asyncio.sleep(1)
             if await api.is_logged_in():
                 print(f"✅ Login thành công: {account}")
+                break
 
         # --- Cookies + storage ---
         cookies = await context.cookies()
@@ -163,6 +166,7 @@ async def build_session_from_account(account, password, username):
         print(f"✅ Session saved: {username}")
         return payload
 
+# login nhiều tài khoản bằng file excel
 async def auto_login_from_excel(excel_file):
     df = pd.read_excel(excel_file)
 
@@ -178,6 +182,7 @@ async def auto_login_from_excel(excel_file):
         # tuỳ chọn: nghỉ 1–2s để giảm bị captcha
         await asyncio.sleep(5)
 
+# binh luận một tài khoản sử dụng api (chưa thành công)
 async def post_comment_with_api(session_data, text, video_url):
     """
     Post comment vào TikTok video sử dụng session đã lưu. Phần này tiktok phát hiện và ẩn comment đối với các tài khoản khác
@@ -234,6 +239,7 @@ async def post_comment_with_api(session_data, text, video_url):
         print("✅ Result:", res)
         return res
 
+# bình luận bằng một tài khoản sử dụng UI và ấn nút post
 async def post_comment_with_ui(session_data, text, video_url):
     """
     Comment TikTok bằng UI thật, đảm bảo hiển thị 100% trên App.
@@ -334,6 +340,7 @@ async def post_comment_with_ui(session_data, text, video_url):
             "text": text
         }
 
+# bình luận bằng nhiều tài khoản sử dụng UI và ấn nút post
 async def auto_comment_with_ui(comments_list):
     """
     comments_list = [
@@ -360,8 +367,13 @@ async def auto_comment_with_ui(comments_list):
 
     return results
 
+# Phân tích video
+async def analysis_video(session_data, video_url, top_comment_count):
+    return
+
 async def main():
     await auto_login_from_excel("accounts.xlsx")
+    return
 
 if __name__ == "__main__":
     asyncio.run(main())
